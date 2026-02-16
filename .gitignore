@@ -1,0 +1,6 @@
+﻿output/
+iterations/
+input/*.png
+*.log
+__pycache__/
+.venv/
