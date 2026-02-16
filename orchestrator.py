@@ -2,7 +2,7 @@
 from pathlib import Path
 
 JOB = Path(r'C:\ps_jobs\job_0001')
-PHOTOSHOP_EXE = Path(r'C:\Users\User\Documents\Zona Downloads\Photoshop\Photoshop\local\stubexe\0xB05F1F502015EFEA\Photoshop.exe')
+PHOTOSHOP_EXE = Path(r'C:\Users\User\Documents\Zona Downloads\Photoshop\Photoshop.exe')
 
 TASK_JSX = JOB / 'scripts' / 'task.jsx'
 CONFIG = JOB / 'config.json'
@@ -49,3 +49,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
