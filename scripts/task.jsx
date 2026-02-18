@@ -80,24 +80,29 @@ app.displayDialogs = DialogModes.NO;
 
   // ── Resolve repo root ────────────────────────────────────────────────────
   //
-  // When run via File > Scripts > Browse or Photoshop.exe -r:
-  //   $.fileName = absolute path to this file  → use it directly
+  // Priority order:
+  //   1. __jobRoot__  — injected by orchestrator.py via COM preamble (most reliable)
+  //   2. __jsxFile__  — injected by orchestrator.py (derive parent.parent)
+  //   3. $.fileName   — set by PS when run via File > Scripts > Browse
   //
-  // When run via COM DoJavaScript (source code as string):
-  //   $.fileName = "" (empty)  → orchestrator injects __jsxFile__ variable
-  //
-  // We prefer __jsxFile__ if set, then fall back to $.fileName.
+  // Using __jobRoot__ directly avoids all File API path resolution issues.
 
-  var _selfPath = (typeof __jsxFile__ !== "undefined" && __jsxFile__)
-                  ? __jsxFile__
-                  : $.fileName;
+  var jobRoot;
 
-  var scriptFile     = new File(_selfPath);
-  var scriptAbsolute = scriptFile.absoluteURI;   // always absolute, URI-encoded
-  var scriptsFolder  = new File(scriptAbsolute).parent;   // …/scripts
-  var repoFolder     = scriptsFolder.parent;               // …/repo-root
-
-  var jobRoot = norm(repoFolder.fsName);   // native OS path, forward-slashed
+  if (typeof __jobRoot__ !== "undefined" && __jobRoot__) {
+    // Best case: Python injected the absolute repo root directly
+    jobRoot = norm(__jobRoot__);
+  } else {
+    // Fallback: derive from script file path
+    var _selfPath = (typeof __jsxFile__ !== "undefined" && __jsxFile__)
+                    ? __jsxFile__
+                    : $.fileName;
+    var scriptFile     = new File(_selfPath);
+    var scriptAbsolute = scriptFile.absoluteURI;
+    var scriptsFolder  = new File(scriptAbsolute).parent;
+    var repoFolder     = scriptsFolder.parent;
+    jobRoot = norm(repoFolder.fsName);
+  }
 
   var configPath   = norm(joinPath(jobRoot, "config.json"));
   var bootstrapLog = norm(joinPath(jobRoot, "out/bootstrap.log"));
@@ -105,11 +110,22 @@ app.displayDialogs = DialogModes.NO;
   // Ensure out/ exists before we try to write bootstrap.log
   try { ensureFolder(norm(joinPath(jobRoot, "out"))); } catch (e) {}
 
+  // ── Super-early debug write (hardcoded path from __jobRoot__) ────────────
+  // This is the very first file write. If this fails, Photoshop has no
+  // write access to the output directory at all.
+  try {
+    var _earlyDebug = norm(joinPath(jobRoot, "out/jsx_debug.txt"));
+    var _df = new File(_earlyDebug);
+    _df.encoding = "UTF-8";
+    _df.open("a");
+    _df.writeln(nowStr() + " | JSX reached early-debug checkpoint. jobRoot=" + jobRoot);
+    _df.close();
+  } catch (_de) { /* if even this fails, nothing can be done */ }
+
   writeLog(bootstrapLog, "=== JSX start ===");
-  writeLog(bootstrapLog, "pathSource   = " + (_selfPath === $.fileName ? "$.fileName" : "__jsxFile__"));
-  writeLog(bootstrapLog, "_selfPath    = " + _selfPath);
-  writeLog(bootstrapLog, "$.fileName   = " + $.fileName);
-  writeLog(bootstrapLog, "scriptAbsURI = " + scriptAbsolute);
+  writeLog(bootstrapLog, "jobRoot source = " +
+           (typeof __jobRoot__ !== "undefined" && __jobRoot__ ? "__jobRoot__" :
+            (typeof __jsxFile__ !== "undefined" && __jsxFile__ ? "__jsxFile__" : "$.fileName")));
   writeLog(bootstrapLog, "jobRoot      = " + jobRoot);
   writeLog(bootstrapLog, "configPath   = " + configPath);
   writeLog(bootstrapLog, "config exists? " + (new File(configPath)).exists);

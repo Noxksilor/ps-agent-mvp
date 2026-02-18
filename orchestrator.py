@@ -131,24 +131,14 @@ def _get_ps_com(timeout_s: int, logger: logging.Logger):
     )
 
 
-def _run_jsx_via_com(app, jsx_path: Path, logger: logging.Logger) -> None:
+def _run_jsx_via_com(app, jsx_path: Path, repo_root: Path,
+                     logger: logging.Logger) -> None:
     """
-    Execute a JSX file inside the running Photoshop via COM.
+    Execute a JSX file inside the running Photoshop via COM DoJavaScript().
 
-    Photoshop COM exposes two ways to run JavaScript/ExtendScript:
-
-      1. app.DoJavaScript(code_string)
-         Executes ExtendScript source code passed as a string.
-         Most reliable method across all PS versions.
-
-      2. app.DoScript(name, set, options)
-         Runs a named Action from an Action Set — NOT for JSX files.
-
-    We use method 1: read the JSX file, then call DoJavaScript with the source.
-
-    IMPORTANT: when code is passed as a string, $.fileName is empty inside
-    the script. We inject a __jsxFile__ variable at the top so task.jsx can
-    use it to resolve the repo root instead of $.fileName.
+    When code is passed as a string (not a file), $.fileName is empty inside
+    the script. We inject __jsxFile__ AND __jobRoot__ directly from Python so
+    task.jsx never needs to do any path resolution — it just uses __jobRoot__.
     """
     # Suppress all dialogs so the script runs unattended
     try:
@@ -159,12 +149,17 @@ def _run_jsx_via_com(app, jsx_path: Path, logger: logging.Logger) -> None:
     logger.info(f"Reading JSX source: {jsx_path}")
     jsx_source = jsx_path.read_text(encoding="utf-8")
 
-    # Inject the real file path so task.jsx can resolve jobRoot correctly.
-    # Use forward slashes to avoid escaping issues in ExtendScript strings.
-    jsx_path_fwd = str(jsx_path).replace("\\", "/")
-    preamble = f'var __jsxFile__ = "{jsx_path_fwd}";\n'
+    # Inject absolute paths with forward slashes (safe in ExtendScript strings)
+    jsx_path_fwd  = str(jsx_path).replace("\\", "/")
+    repo_root_fwd = str(repo_root).replace("\\", "/")
+
+    preamble = (
+        f'var __jsxFile__  = "{jsx_path_fwd}";\n'
+        f'var __jobRoot__  = "{repo_root_fwd}";\n'
+    )
     full_source = preamble + jsx_source
 
+    logger.info(f"Injected __jobRoot__ = {repo_root_fwd}")
     logger.info(f"Calling app.DoJavaScript() ({len(full_source)} chars) …")
 
     # DoJavaScript(javascript, arguments, executionMode)
@@ -258,11 +253,11 @@ def run_pipeline(config_path: Path) -> int:
         logger.error(str(exc))
         return 1
 
-    # 8. Run JSX via COM doScript ─────────────────────────────────────────────
+    # 8. Run JSX via COM DoJavaScript ─────────────────────────────────────────
     try:
-        _run_jsx_via_com(ps_app, TASK_JSX, logger)
+        _run_jsx_via_com(ps_app, TASK_JSX, REPO_ROOT, logger)
     except Exception as exc:
-        logger.error(f"doScript failed: {exc}")
+        logger.error(f"DoJavaScript failed: {exc}")
         return 1
 
     # 9. Poll for output PNG ──────────────────────────────────────────────────
