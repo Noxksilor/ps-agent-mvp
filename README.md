@@ -57,6 +57,74 @@ ps-agent-mvp/
 
 ---
 
+## One-click start (Windows + Docker Desktop)
+
+The fastest way to get the full stack running — Photoshop pipeline **+** n8n automation UI — is the included PowerShell launcher:
+
+```powershell
+.\start_ps_agent.ps1
+```
+
+### What the script does
+
+| Step | Action |
+|---|---|
+| 1 | Checks if Docker Desktop is running; starts it automatically if not |
+| 2 | Waits until the Docker daemon is ready (up to 120 s) |
+| 3 | Runs `docker compose up -d` to start the n8n container |
+| 4 | Waits until n8n is reachable at `http://localhost:5678` (up to 90 s) |
+| 5 | *(Optional)* Activates a specific n8n workflow via the REST API |
+| 6 | Opens `http://localhost:5678` in your default browser |
+
+### First-time setup
+
+1. **Install Docker Desktop** from <https://www.docker.com/products/docker-desktop/>.
+   Enable "Start Docker Desktop when you log in" in Settings → General.
+
+2. **Clone the repo** and enter the project folder:
+   ```bat
+   git clone https://github.com/Noxksilor/ps-agent-mvp.git
+   cd ps-agent-mvp
+   ```
+
+3. **Install Python dependencies** (one-time):
+   ```bat
+   pip install pywin32
+   ```
+
+4. **Configure your job** in `configjson/example_job.json`:
+   - Set `photoshop_exe` to your Photoshop path.
+   - Set `export.png.path` to a writable absolute path (run `python ps_diag.py` to find one).
+
+5. **Run the launcher**:
+   ```powershell
+   .\start_ps_agent.ps1
+   ```
+   The browser will open `http://localhost:5678` automatically.
+
+### Auto-activating a workflow (optional)
+
+To have the script automatically activate an n8n workflow on startup:
+
+1. Import your workflow into n8n.
+2. Open the workflow in the n8n UI — the URL will look like:
+   `http://localhost:5678/workflow/abc123`
+3. Copy the ID (`abc123`).
+4. Edit `start_ps_agent.ps1` and set:
+   ```powershell
+   $WorkflowId = "abc123"
+   ```
+
+The script will call `PATCH /api/v1/workflows/<id>` with `{"active":true}` on every startup.
+
+### Stopping the stack
+
+```bat
+docker compose down
+```
+
+---
+
 ## Requirements
 
 | Requirement | Notes |
@@ -65,11 +133,12 @@ ps-agent-mvp/
 | **Python 3.8+** | One third-party package needed (see below) |
 | **pywin32** | `pip install pywin32` — used to drive Photoshop via COM |
 | **Adobe Photoshop** | Any version, including portable builds |
+| **Docker Desktop** | Required only for n8n; not needed for the Photoshop pipeline alone |
 
 > **Why pywin32?**
 > The `-r` flag (`Photoshop.exe -r script.jsx`) only works with officially
 > installed Photoshop. Portable builds ignore it. The orchestrator instead
-> launches Photoshop normally and then calls `app.DoScript()` via Windows COM,
+> launches Photoshop normally and then calls `app.DoJavaScript()` via Windows COM,
 > which works with any build.
 
 ---

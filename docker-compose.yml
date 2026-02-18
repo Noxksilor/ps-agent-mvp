@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: ps_agent_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      # Persist n8n data (workflows, credentials, executions) in a local folder.
+      # The folder is created automatically on first run.
+      - ./n8n_data:/home/node/.n8n
+    environment:
+      # Set your timezone so cron triggers fire at the right local time.
+      - GENERIC_TIMEZONE=Europe/Moscow
+      # Disable telemetry (optional)
+      - N8N_DIAGNOSTICS_ENABLED=false
+      # Allow the n8n instance to be reached from the host browser
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      # Webhook base URL (used when n8n generates webhook URLs)
+      - WEBHOOK_URL=http://localhost:5678/

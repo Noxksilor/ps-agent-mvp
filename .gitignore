@@ -2,6 +2,9 @@
 out/*
 !out/.gitkeep
 
+# ── n8n data volume (Docker) ─────────────────────────────────────────────
+n8n_data/
+
 # legacy output folder (pre-refactor)
 output/
 
