@@ -181,11 +181,50 @@ out/
 
 ---
 
+## Diagnostics
+
+Before running the full pipeline, use the diagnostic tool to verify that your Photoshop build can execute JSX and write files:
+
+```bat
+python ps_diag.py
+```
+
+Or with an explicit path:
+
+```bat
+python ps_diag.py "C:\Users\User\Documents\Zona Downloads\Photoshop\Photoshop.exe"
+```
+
+### What it tests
+
+The script launches Photoshop, connects via COM, and runs a minimal JSX that tries to write to **four different locations**:
+
+| Test file | Location |
+|---|---|
+| `C:\ps_diag_root.txt` | Root of C: drive |
+| `C:\Users\Public\ps_diag_public.txt` | Public user folder |
+| `<repo>\out\jsx_diag.txt` | Project output folder |
+| `%TEMP%\ps_diag_temp.txt` | Windows TEMP folder |
+
+### How to interpret the result
+
+| Result | Meaning | Action |
+|---|---|---|
+| **PASS** — all 4 files created | Photoshop + COM + JSX file I/O all work | Run `python orchestrator.py configjson/example_job.json` |
+| **PARTIAL** — some files created | PS can write, but only to certain paths | Move output path to a writable location |
+| **FAIL** — zero files created | This PS build blocks all JSX file I/O via COM | Try manual test (see below) or use official PS |
+
+### Manual JSX test (if FAIL)
+
+Open Photoshop, then:
+**File → Scripts → Browse** → select `scripts/task_simple.jsx`
+
+- If `out/jsx_ok.txt` appears → JSX works manually but not via COM. The issue is COM-specific.
+- If nothing appears → this Photoshop build cannot run ExtendScript at all.
+
+---
+
 ## Troubleshooting
-
-### "AutoHotkey not found on PATH"
-
-Add the AutoHotkey installation folder to your system `PATH`, or pass the full path by editing `orchestrator.py` → `_find_ahk()`.
 
 ### "Photoshop.exe not found"
 
@@ -193,26 +232,14 @@ Set the correct path in your job config under `photoshop_exe`.
 
 ### Timeout — `final.png` not created
 
-1. Open `out/<job_id>/run.log` — the JSX writes detailed errors there.
-2. Also check `out/bootstrap.log` for very early JSX errors.
-3. Common causes:
+1. Run `python ps_diag.py` first to confirm JSX file I/O works.
+2. Open `out/<job_id>/run.log` — the JSX writes detailed errors there.
+3. Also check `out/bootstrap.log` for very early JSX errors.
+4. Check `out/jsx_debug.txt` — if it exists, JSX started successfully.
+5. Common causes:
    - `input/base.png` is missing.
    - Photoshop shows a dialog (license, update) — dismiss it and re-run.
-   - Photoshop version does not support the `-r` flag — try opening PS manually and running the script via **File → Scripts → Browse**.
-
-### Running without AutoHotkey
-
-If you prefer to launch Photoshop manually, you can skip AHK entirely:
-
-1. Open Photoshop.
-2. **File → Scripts → Browse** → select `scripts/task.jsx`.
-3. The orchestrator will still detect the output PNG if it is already polling.
-
-Alternatively, call Photoshop directly from Python by setting `photoshop_exe` and removing the AHK step — edit `orchestrator.py` → `run_pipeline()` and replace the AHK `subprocess.Popen` call with:
-
-```python
-subprocess.Popen([str(ps_exe), "-r", str(TASK_JSX)], cwd=str(REPO_ROOT))
-```
+   - Portable Photoshop build blocks file I/O via COM.
 
 ---
 
