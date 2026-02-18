@@ -61,10 +61,16 @@ ps-agent-mvp/
 
 | Requirement | Notes |
 |---|---|
-| **Windows** | Photoshop and AutoHotkey are Windows-only |
-| **Python 3.8+** | No third-party packages needed |
-| **Adobe Photoshop** | Any version that supports ExtendScript (`-r` flag) |
-| **AutoHotkey v1 or v2** | Must be on `PATH` (`autohotkey.exe` / `AutoHotkey64.exe`) |
+| **Windows** | Photoshop is Windows-only |
+| **Python 3.8+** | One third-party package needed (see below) |
+| **pywin32** | `pip install pywin32` — used to drive Photoshop via COM |
+| **Adobe Photoshop** | Any version, including portable builds |
+
+> **Why pywin32?**
+> The `-r` flag (`Photoshop.exe -r script.jsx`) only works with officially
+> installed Photoshop. Portable builds ignore it. The orchestrator instead
+> launches Photoshop normally and then calls `app.DoScript()` via Windows COM,
+> which works with any build.
 
 ---
 
