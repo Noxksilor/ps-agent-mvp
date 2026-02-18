@@ -133,8 +133,22 @@ def _get_ps_com(timeout_s: int, logger: logging.Logger):
 
 def _run_jsx_via_com(app, jsx_path: Path, logger: logging.Logger) -> None:
     """
-    Execute a JSX file inside the running Photoshop via COM doScript().
-    This works even with portable builds that ignore the -r flag.
+    Execute a JSX file inside the running Photoshop via COM.
+
+    Photoshop COM exposes two ways to run JavaScript/ExtendScript:
+
+      1. app.DoJavaScript(code_string)
+         Executes ExtendScript source code passed as a string.
+         Most reliable method across all PS versions.
+
+      2. app.DoScript(name, set, options)
+         Runs a named Action from an Action Set — NOT for JSX files.
+
+    We use method 1: read the JSX file, then call DoJavaScript with the source.
+
+    IMPORTANT: when code is passed as a string, $.fileName is empty inside
+    the script. We inject a __jsxFile__ variable at the top so task.jsx can
+    use it to resolve the repo root instead of $.fileName.
     """
     # Suppress all dialogs so the script runs unattended
     try:
@@ -142,13 +156,25 @@ def _run_jsx_via_com(app, jsx_path: Path, logger: logging.Logger) -> None:
     except Exception:
         pass
 
-    jsx_str = str(jsx_path)
-    logger.info(f"Running JSX via COM doScript: {jsx_str}")
+    logger.info(f"Reading JSX source: {jsx_path}")
+    jsx_source = jsx_path.read_text(encoding="utf-8")
 
-    # doScript(script, language)
-    #   language: 1=AppleScript, 2=JavaScript(ExtendScript), 3=VBScript
-    app.DoScript(jsx_str, JAVASCRIPT)
-    logger.info("doScript() returned (JSX handed off to Photoshop).")
+    # Inject the real file path so task.jsx can resolve jobRoot correctly.
+    # Use forward slashes to avoid escaping issues in ExtendScript strings.
+    jsx_path_fwd = str(jsx_path).replace("\\", "/")
+    preamble = f'var __jsxFile__ = "{jsx_path_fwd}";\n'
+    full_source = preamble + jsx_source
+
+    logger.info(f"Calling app.DoJavaScript() ({len(full_source)} chars) …")
+
+    # DoJavaScript(javascript, arguments, executionMode)
+    #   javascript    : ExtendScript source code string
+    #   arguments     : array of arguments (pass empty list)
+    #   executionMode : 1 = normal (synchronous)
+    result = app.DoJavaScript(full_source, [], 1)
+
+    logger.info(f"DoJavaScript() returned: {result!r}")
+    logger.info("JSX execution complete (Photoshop processed the script).")
 
 
 # ───────────────────────────────────────────────────────────────────────────

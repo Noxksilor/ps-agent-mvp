@@ -80,17 +80,19 @@ app.displayDialogs = DialogModes.NO;
 
   // ── Resolve repo root ────────────────────────────────────────────────────
   //
-  // $.fileName can be:
-  //   a) an absolute path  → use it directly
-  //   b) a relative path   → resolve against app.path (PS install dir) — WRONG
+  // When run via File > Scripts > Browse or Photoshop.exe -r:
+  //   $.fileName = absolute path to this file  → use it directly
   //
-  // Safest approach: use the File object's .parent chain.
-  // scripts/task.jsx  →  parent = scripts/  →  parent.parent = repo root
+  // When run via COM DoJavaScript (source code as string):
+  //   $.fileName = "" (empty)  → orchestrator injects __jsxFile__ variable
+  //
+  // We prefer __jsxFile__ if set, then fall back to $.fileName.
 
-  var scriptFile = new File($.fileName);
+  var _selfPath = (typeof __jsxFile__ !== "undefined" && __jsxFile__)
+                  ? __jsxFile__
+                  : $.fileName;
 
-  // If $.fileName is relative, Photoshop resolves it against its CWD.
-  // We force an absolute path by resolving via the File API.
+  var scriptFile     = new File(_selfPath);
   var scriptAbsolute = scriptFile.absoluteURI;   // always absolute, URI-encoded
   var scriptsFolder  = new File(scriptAbsolute).parent;   // …/scripts
   var repoFolder     = scriptsFolder.parent;               // …/repo-root
@@ -104,6 +106,8 @@ app.displayDialogs = DialogModes.NO;
   try { ensureFolder(norm(joinPath(jobRoot, "out"))); } catch (e) {}
 
   writeLog(bootstrapLog, "=== JSX start ===");
+  writeLog(bootstrapLog, "pathSource   = " + (_selfPath === $.fileName ? "$.fileName" : "__jsxFile__"));
+  writeLog(bootstrapLog, "_selfPath    = " + _selfPath);
   writeLog(bootstrapLog, "$.fileName   = " + $.fileName);
   writeLog(bootstrapLog, "scriptAbsURI = " + scriptAbsolute);
   writeLog(bootstrapLog, "jobRoot      = " + jobRoot);
