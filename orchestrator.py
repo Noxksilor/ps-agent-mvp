@@ -8,32 +8,27 @@ What it does:
     1. Reads the job config (JSON) from the path given on the command line.
     2. Resolves all paths relative to the repo root (directory of this file).
     3. Writes a per-run log to  out/<job_id>/run.log
-    4. Launches Photoshop via AutoHotkey (scripts/launch_ps.ahk) so that
-       scripts/task.jsx is executed inside Photoshop.
-    5. Polls for the output PNG in  out/  (path taken from config).
-    6. Exits with code 0 on success, 1 on any error.
+    4. Kills any existing Photoshop process (so -r flag works reliably).
+    5. Launches Photoshop.exe -r scripts/task.jsx  directly (no AHK needed).
+    6. Polls for the output PNG in  out/  (path taken from config).
+    7. Exits with code 0 on success, 1 on any error.
 
 Requirements:
-    - Windows with AutoHotkey v1 installed and on PATH  (autohotkey.exe)
-      OR AutoHotkey v2  (AutoHotkey64.exe / AutoHotkey32.exe).
-    - Adobe Photoshop installed; path set in the job config.
-    - Python 3.8+
+    - Windows with Adobe Photoshop installed.
+    - Python 3.8+  (no third-party packages required).
 """
 
+import os
 import sys
 import json
 import time
 import shutil
 import logging
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 # ── repo root = directory that contains this file ──────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent
-
-# ── AHK script that launches Photoshop ─────────────────────────────────────
-AHK_SCRIPT = REPO_ROOT / "scripts" / "launch_ps.ahk"
 
 # ── JSX script that Photoshop will run ─────────────────────────────────────
 TASK_JSX = REPO_ROOT / "scripts" / "task.jsx"
@@ -43,39 +38,32 @@ TASK_JSX = REPO_ROOT / "scripts" / "task.jsx"
 # Helpers
 # ───────────────────────────────────────────────────────────────────────────
 
-def _find_ahk() -> str:
-    """Return the full path to the AutoHotkey executable, or raise."""
-    # 1. Check PATH first (works if AHK is on PATH)
-    for candidate in ("AutoHotkey.exe", "AutoHotkey64.exe",
-                      "AutoHotkey32.exe", "autohotkey.exe"):
-        found = shutil.which(candidate)
-        if found:
-            return found
-
-    # 2. Check well-known default installation paths (AHK v2 and v1)
-    import os
-    well_known = [
-        r"C:\Program Files\AutoHotkey\v2\AutoHotkey.exe",
-        r"C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe",
-        r"C:\Program Files\AutoHotkey\AutoHotkey.exe",
-        r"C:\Program Files (x86)\AutoHotkey\AutoHotkey.exe",
-        r"C:\Program Files\AutoHotkey\AutoHotkeyU64.exe",
-    ]
-    for path in well_known:
-        if os.path.isfile(path):
-            return path
-
-    raise FileNotFoundError(
-        "AutoHotkey not found on PATH or in default install locations. "
-        "Install AutoHotkey v2 from https://www.autohotkey.com/ "
-        "or add it to PATH."
-    )
+def _kill_photoshop(logger: logging.Logger) -> None:
+    """
+    Kill any running Photoshop.exe process so the fresh launch with -r works.
+    Uses taskkill (Windows built-in) — silently ignores 'not found' errors.
+    """
+    try:
+        result = subprocess.run(
+            ["taskkill", "/F", "/IM", "Photoshop.exe"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            logger.info("Killed existing Photoshop.exe process.")
+            time.sleep(2)   # give Windows time to release file handles
+        # returncode 128 = process not found — that's fine
+    except Exception as exc:
+        logger.debug(f"taskkill skipped: {exc}")
 
 
 def _setup_logger(log_path: Path) -> logging.Logger:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Remove any handlers from a previous call (important when run in a loop)
     logger = logging.getLogger("orchestrator")
+    logger.handlers.clear()
     logger.setLevel(logging.DEBUG)
+
     fmt = logging.Formatter("%(asctime)s | %(levelname)-7s | %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
     # file handler — append so reruns accumulate
@@ -128,6 +116,7 @@ def run_pipeline(config_path: Path) -> int:
     logger.info(f"Config   : {config_path}")
     logger.info(f"Output   : {final_png}")
     logger.info(f"JSX      : {TASK_JSX}")
+    logger.info(f"RepoRoot : {REPO_ROOT}")
 
     # 3. Validate prerequisites ───────────────────────────────────────────────
     ps_exe_str = cfg.get("photoshop_exe", "")
@@ -144,16 +133,6 @@ def run_pipeline(config_path: Path) -> int:
         logger.error(f"task.jsx not found: {TASK_JSX}")
         return 1
 
-    if not AHK_SCRIPT.exists():
-        logger.error(f"AHK script not found: {AHK_SCRIPT}")
-        return 1
-
-    try:
-        ahk_exe = _find_ahk()
-    except FileNotFoundError as exc:
-        logger.error(str(exc))
-        return 1
-
     # 4. Prepare output directory ─────────────────────────────────────────────
     final_png.parent.mkdir(parents=True, exist_ok=True)
 
@@ -162,10 +141,9 @@ def run_pipeline(config_path: Path) -> int:
         final_png.unlink()
         logger.info("Removed stale output PNG.")
 
-    # 5. Copy config to a location the JSX can find ──────────────────────────
-    # task.jsx looks for config.json two levels above itself (repo root).
-    # We write a temporary config.json at repo root so the JSX picks it up.
-    # The JSX resolves paths relative to repo root, so we patch export path too.
+    # 5. Write runtime config.json at repo root ──────────────────────────────
+    # task.jsx reads config.json from the repo root (two levels above itself).
+    # We write a runtime copy so the JSX picks up the correct export path.
     runtime_cfg = dict(cfg)
     runtime_cfg["export"] = {
         "png": {"path": export_png_rel},
@@ -178,34 +156,39 @@ def run_pipeline(config_path: Path) -> int:
     )
     logger.info(f"Wrote runtime config.json → {runtime_config_path}")
 
-    # 6. Launch Photoshop via AHK ─────────────────────────────────────────────
-    cmd = [ahk_exe, str(AHK_SCRIPT), str(ps_exe), str(TASK_JSX)]
-    logger.info("Launching: " + " ".join(f'"{c}"' for c in cmd))
+    # 6. Kill any existing Photoshop so -r flag works reliably ────────────────
+    _kill_photoshop(logger)
+
+    # 7. Launch Photoshop directly with -r flag ───────────────────────────────
+    #
+    # Photoshop.exe -r <jsx_path>
+    #   Launches PS and immediately runs the JSX script.
+    #   This only works reliably when NO other PS instance is running.
+    #
+    # We use CREATE_NEW_CONSOLE so the process is fully detached from our
+    # terminal, and we do NOT wait for it (Photoshop stays open after the
+    # script finishes — we detect completion via the output file).
+
+    cmd = [str(ps_exe), "-r", str(TASK_JSX)]
+    logger.info("Launching Photoshop: " + " ".join(f'"{c}"' for c in cmd))
 
     try:
+        # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS keeps PS independent
+        DETACHED_PROCESS = 0x00000008
         proc = subprocess.Popen(
             cmd,
             cwd=str(REPO_ROOT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            creationflags=DETACHED_PROCESS,
+            close_fds=True,
         )
+        logger.info(f"Photoshop launched (PID {proc.pid}). Waiting for output…")
     except OSError as exc:
-        logger.error(f"Failed to start AHK: {exc}")
+        logger.error(f"Failed to launch Photoshop: {exc}")
         return 1
 
-    # Wait for AHK to finish (it exits after handing off to Photoshop)
-    try:
-        ahk_stdout, ahk_stderr = proc.communicate(timeout=30)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        logger.warning("AHK process timed out — continuing to poll for PNG.")
-
-    if proc.returncode not in (None, 0):
-        logger.warning(f"AHK exited with code {proc.returncode}")
-
-    # 7. Poll for output PNG ──────────────────────────────────────────────────
-    timeout_s = int(cfg.get("timeout_seconds", 120))
-    logger.info(f"Waiting up to {timeout_s}s for {final_png.name} …")
+    # 8. Poll for output PNG ──────────────────────────────────────────────────
+    timeout_s = int(cfg.get("timeout_seconds", 180))
+    logger.info(f"Polling for {final_png.name} (timeout {timeout_s}s) …")
 
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout_s:
@@ -217,11 +200,12 @@ def run_pipeline(config_path: Path) -> int:
                 f"({size_kb:.1f} KB, {elapsed:.1f}s elapsed)"
             )
             return 0
-        time.sleep(1)
+        time.sleep(2)
 
     logger.error(
-        f"TIMEOUT after {timeout_s}s — {final_png} was not created. "
-        "Check out/<job_id>/run.log (JSX log) for Photoshop-side errors."
+        f"TIMEOUT after {timeout_s}s — {final_png} was not created.\n"
+        f"  Check {log_path} for JSX-side errors.\n"
+        f"  Also check {REPO_ROOT / 'out' / 'bootstrap.log'} for early JSX errors."
     )
     return 1
 
