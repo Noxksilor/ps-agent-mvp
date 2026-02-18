@@ -192,20 +192,38 @@ def run_pipeline(config_path: Path) -> int:
 
     job_id = cfg.get("job_id", config_path.stem)
 
-    # 2. Resolve output path ──────────────────────────────────────────────────
-    export_png_rel = (
+    # 2. Resolve output paths ─────────────────────────────────────────────────
+    #
+    # export_png_path: the path JSX writes to (may be absolute, e.g. C:/Users/Public/...)
+    # local_png:       always inside out/<job_id>/  — the canonical output for the user
+    #
+    # If export_png_path is absolute → JSX writes there; orchestrator copies to local_png.
+    # If export_png_path is relative → JSX writes to REPO_ROOT/path; that IS local_png.
+
+    export_png_path_str = (
         cfg.get("export", {}).get("png", {}).get("path") or f"out/{job_id}/final.png"
     )
-    final_png: Path = REPO_ROOT / export_png_rel
-    log_path = final_png.parent / "run.log"
+    export_png_path = Path(export_png_path_str)
+    if not export_png_path.is_absolute():
+        export_png_path = REPO_ROOT / export_png_path_str
+
+    # The canonical local output (always in out/<job_id>/)
+    local_png: Path = REPO_ROOT / "out" / job_id / "final.png"
+
+    # If JSX writes directly to local_png, no copy needed
+    needs_copy = export_png_path.resolve() != local_png.resolve()
+
+    log_path = local_png.parent / "run.log"
     logger = _setup_logger(log_path)
 
     logger.info("=" * 60)
-    logger.info(f"Job      : {job_id}")
-    logger.info(f"Config   : {config_path}")
-    logger.info(f"Output   : {final_png}")
-    logger.info(f"JSX      : {TASK_JSX}")
-    logger.info(f"RepoRoot : {REPO_ROOT}")
+    logger.info(f"Job        : {job_id}")
+    logger.info(f"Config     : {config_path}")
+    logger.info(f"JSX output : {export_png_path}  (where JSX saves the PNG)")
+    logger.info(f"Local PNG  : {local_png}  (final destination)")
+    logger.info(f"Copy needed: {needs_copy}")
+    logger.info(f"JSX        : {TASK_JSX}")
+    logger.info(f"RepoRoot   : {REPO_ROOT}")
 
     # 3. Validate prerequisites ───────────────────────────────────────────────
     ps_exe_str = cfg.get("photoshop_exe", "")
@@ -222,16 +240,22 @@ def run_pipeline(config_path: Path) -> int:
         logger.error(f"task.jsx not found: {TASK_JSX}")
         return 1
 
-    # 4. Prepare output directory ─────────────────────────────────────────────
-    final_png.parent.mkdir(parents=True, exist_ok=True)
-    if final_png.exists():
-        final_png.unlink()
-        logger.info("Removed stale output PNG.")
+    # 4. Prepare output directories ───────────────────────────────────────────
+    local_png.parent.mkdir(parents=True, exist_ok=True)
+
+    # Remove stale files so we can detect fresh creation
+    if export_png_path.exists():
+        export_png_path.unlink()
+        logger.info(f"Removed stale JSX output: {export_png_path}")
+    if local_png.exists():
+        local_png.unlink()
+        logger.info(f"Removed stale local PNG: {local_png}")
 
     # 5. Write runtime config.json ────────────────────────────────────────────
+    # Pass the export path exactly as configured so JSX writes to the right place.
     runtime_cfg = dict(cfg)
     runtime_cfg["export"] = {
-        "png": {"path": export_png_rel},
+        "png": {"path": export_png_path_str},   # keep original (may be absolute)
         "psd": cfg.get("export", {}).get("psd", {"enabled": False}),
     }
     runtime_config_path = REPO_ROOT / "config.json"
@@ -260,26 +284,42 @@ def run_pipeline(config_path: Path) -> int:
         logger.error(f"DoJavaScript failed: {exc}")
         return 1
 
-    # 9. Poll for output PNG ──────────────────────────────────────────────────
+    # 9. Poll for JSX output PNG ──────────────────────────────────────────────
     timeout_s = int(cfg.get("timeout_seconds", 180))
-    logger.info(f"Polling for {final_png.name} (timeout {timeout_s}s) …")
+    logger.info(
+        f"Polling for JSX output: {export_png_path}  (timeout {timeout_s}s) …"
+    )
 
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout_s:
-        if final_png.exists() and final_png.stat().st_size > 0:
+        if export_png_path.exists() and export_png_path.stat().st_size > 0:
             elapsed = time.monotonic() - t0
-            size_kb = final_png.stat().st_size / 1024
+            size_kb = export_png_path.stat().st_size / 1024
             logger.info(
-                f"SUCCESS — {final_png.name} created "
+                f"JSX output ready: {export_png_path.name} "
                 f"({size_kb:.1f} KB, {elapsed:.1f}s elapsed)"
             )
+
+            # 10. Copy to local output path ───────────────────────────────────
+            if needs_copy:
+                import shutil
+                shutil.copy2(str(export_png_path), str(local_png))
+                logger.info(
+                    f"Copied to local PNG: {local_png} "
+                    f"({local_png.stat().st_size / 1024:.1f} KB)"
+                )
+            else:
+                logger.info(f"Local PNG is the same file — no copy needed.")
+
+            logger.info(f"SUCCESS — final PNG: {local_png}")
             return 0
         time.sleep(2)
 
     logger.error(
-        f"TIMEOUT after {timeout_s}s — {final_png} was not created.\n"
-        f"  JSX log : {log_path}\n"
-        f"  Bootstrap: {REPO_ROOT / 'out' / 'bootstrap.log'}"
+        f"TIMEOUT after {timeout_s}s — JSX output not found at: {export_png_path}\n"
+        f"  JSX log  : {log_path}\n"
+        f"  Bootstrap: {REPO_ROOT / 'out' / 'bootstrap.log'}\n"
+        f"  Debug    : {REPO_ROOT / 'out' / 'jsx_debug.txt'}"
     )
     return 1
 

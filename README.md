@@ -175,9 +175,24 @@ Exit code `0` = success, `1` = error.
 ```
 out/
 └── example_job/
-    ├── final.png   ← composited image
+    ├── final.png   ← composited image (copied here from JSX output path)
     └── run.log     ← detailed JSX-side log
 ```
+
+> **Note on output paths:**
+> Some Photoshop builds (portable) can only write files to certain directories
+> (e.g. `C:\Users\Public\`). In that case, set `export.png.path` in your job
+> config to an absolute writable path:
+>
+> ```json
+> "export": {
+>   "png": { "path": "C:/Users/Public/ps_agent_example_job.png" }
+> }
+> ```
+>
+> The orchestrator will poll that path and automatically **copy** the result
+> to `out/<job_id>/final.png` when it appears. The user-facing output is
+> always `out/<job_id>/final.png` regardless of where JSX writes.
 
 ---
 

@@ -19,7 +19,7 @@
     }
   ],
   "export": {
-    "png": { "path": "out/example_job/final.png" },
+    "png": { "path": "C:/Users/Public/ps_agent_example_job.png" },
     "psd": { "enabled": false, "path": "out/example_job/final.psd" }
   },
   "timeout_seconds": 120
