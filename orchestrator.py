@@ -315,11 +315,16 @@ def run_pipeline(config_path: Path) -> int:
             return 0
         time.sleep(2)
 
+    # TIMEOUT — point user to the JSX debug logs in C:\Users\Public\...
+    # (this Photoshop build can only write there)
     logger.error(
         f"TIMEOUT after {timeout_s}s — JSX output not found at: {export_png_path}\n"
-        f"  JSX log  : {log_path}\n"
-        f"  Bootstrap: {REPO_ROOT / 'out' / 'bootstrap.log'}\n"
-        f"  Debug    : {REPO_ROOT / 'out' / 'jsx_debug.txt'}"
+        f"\n"
+        f"  JSX debug logs (check these for errors):\n"
+        f"    C:\\Users\\Public\\ps_agent_jsx_debug.txt\n"
+        f"    C:\\Users\\Public\\ps_agent_bootstrap.log\n"
+        f"\n"
+        f"  Orchestrator log: {log_path}"
     )
     return 1
 

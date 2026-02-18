@@ -263,6 +263,18 @@ out/
 > to `out/<job_id>/final.png` when it appears. The user-facing output is
 > always `out/<job_id>/final.png` regardless of where JSX writes.
 
+#### JSX debug logs (for portable Photoshop builds)
+
+When using a portable Photoshop that can only write to `C:\Users\Public\...`,
+the JSX script writes its debug logs there instead of the project `out/` folder:
+
+| File | Purpose |
+|---|---|
+| `C:\Users\Public\ps_agent_jsx_debug.txt` | Step-by-step progress log (start, config loaded, base exists, export ok, etc.) |
+| `C:\Users\Public\ps_agent_bootstrap.log` | Detailed bootstrap log with timestamps |
+
+If the pipeline times out, check these files to see how far the JSX got before failing.
+
 ---
 
 ## Diagnostics
