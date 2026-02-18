@@ -1,6 +1,32 @@
-﻿output/
-iterations/
+# ── build / runtime outputs ──────────────────────────────────────────────
+out/*
+!out/.gitkeep
+
+# legacy output folder (pre-refactor)
+output/
+
+# ── input assets (large binaries) ────────────────────────────────────────
 input/*.png
+input/*.jpg
+input/*.psd
+
+# ── logs ─────────────────────────────────────────────────────────────────
 *.log
+
+# ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
+*.py[cod]
 .venv/
+venv/
+*.egg-info/
+
+# ── runtime config written by orchestrator ───────────────────────────────
+# config.json at repo root is overwritten each run; keep the template
+# configjson/*.json are the real per-job configs and ARE tracked.
+
+# ── OS / editor ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

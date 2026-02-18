@@ -1,0 +1,26 @@
+{
+  "job_id": "example_job",
+  "photoshop_exe": "C:\\Program Files\\Adobe\\Adobe Photoshop 2024\\Photoshop.exe",
+  "canvas": {
+    "width": 1080,
+    "height": 1080,
+    "dpi": 72,
+    "background": "transparent"
+  },
+  "base": {
+    "path": "input/base.png"
+  },
+  "layers": [
+    {
+      "name": "asset_01",
+      "type": "image",
+      "path": "input/asset_01.png",
+      "transform": { "x": 540, "y": 540, "scale": 80, "rotate": 0 }
+    }
+  ],
+  "export": {
+    "png": { "path": "out/example_job/final.png" },
+    "psd": { "enabled": false, "path": "out/example_job/final.psd" }
+  },
+  "timeout_seconds": 120
+}
