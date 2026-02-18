@@ -1,41 +1,41 @@
-; launch_ps.ahk
-; Usage: AutoHotkey.exe scripts\launch_ps.ahk <photoshop_exe> <jsx_path>
+; launch_ps.ahk  (AutoHotkey v2)
+; Usage: AutoHotkey64.exe scripts\launch_ps.ahk <photoshop_exe> <jsx_path>
 ;
 ; Launches Photoshop with the given JSX script via the -r flag.
-; Photoshop must not already be running (or must accept a second instance).
-; The script exits immediately after launching — the orchestrator polls for
-; the output file.
+; The script exits after handing off to Photoshop — the orchestrator polls
+; for the output file.
 
-#NoEnv
+#Requires AutoHotkey v2.0
 #SingleInstance Off
-SetWorkingDir %A_ScriptDir%\..
 
 ; ---------- read CLI arguments ----------
-photoshopExe := A_Args[1]
-jsxPath      := A_Args[2]
+photoshopExe := A_Args.Length >= 1 ? A_Args[1] : ""
+jsxPath      := A_Args.Length >= 2 ? A_Args[2] : ""
 
 if (photoshopExe = "" or jsxPath = "") {
-    MsgBox, 16, launch_ps.ahk, Usage: AutoHotkey.exe launch_ps.ahk <photoshop_exe> <jsx_path>
-    ExitApp, 1
+    MsgBox "Usage: AutoHotkey64.exe launch_ps.ahk <photoshop_exe> <jsx_path>", "launch_ps.ahk", 16
+    ExitApp 1
 }
 
 if !FileExist(photoshopExe) {
-    MsgBox, 16, launch_ps.ahk, Photoshop not found:`n%photoshopExe%
-    ExitApp, 2
+    MsgBox "Photoshop not found:`n" photoshopExe, "launch_ps.ahk", 16
+    ExitApp 2
 }
 
 if !FileExist(jsxPath) {
-    MsgBox, 16, launch_ps.ahk, JSX not found:`n%jsxPath%
-    ExitApp, 3
+    MsgBox "JSX not found:`n" jsxPath, "launch_ps.ahk", 16
+    ExitApp 3
 }
 
 ; ---------- launch ----------
-Run, "%photoshopExe%" -r "%jsxPath%",, Hide, PID
-if ErrorLevel {
-    MsgBox, 16, launch_ps.ahk, Failed to launch Photoshop.
-    ExitApp, 4
+; Use Run with full quoted paths; Hide keeps the window hidden.
+try {
+    Run '"' photoshopExe '" -r "' jsxPath '"',, "Hide"
+} catch as e {
+    MsgBox "Failed to launch Photoshop: " e.Message, "launch_ps.ahk", 16
+    ExitApp 4
 }
 
 ; Give Photoshop a moment to start accepting the script
-Sleep, 2000
-ExitApp, 0
+Sleep 2000
+ExitApp 0

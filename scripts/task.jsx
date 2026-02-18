@@ -4,7 +4,9 @@
 // Reads config.json from the repo root (two levels above this file),
 // composites layers, and exports a PNG to the path specified in config.
 //
-// Log is written to the same directory as the output PNG (run.log).
+// Logs are written to:
+//   out/bootstrap.log          — very early errors (before config is read)
+//   out/<job_id>/run.log       — full per-run log
 
 #target photoshop
 app.displayDialogs = DialogModes.NO;
@@ -20,6 +22,7 @@ app.displayDialogs = DialogModes.NO;
            " " + z(d.getHours()) + ":" + z(d.getMinutes()) + ":" + z(d.getSeconds());
   }
 
+  // Normalise backslashes → forward slashes
   function norm(p) { return p.replace(/\\/g, "/"); }
 
   function joinPath(a, b) {
@@ -30,7 +33,10 @@ app.displayDialogs = DialogModes.NO;
 
   function ensureFolder(path) {
     var f = new Folder(path);
-    if (!f.exists) f.create();
+    if (!f.exists) {
+      var ok = f.create();
+      if (!ok) throw new Error("Cannot create folder: " + path);
+    }
   }
 
   function writeLog(logPath, msg) {
@@ -72,24 +78,51 @@ app.displayDialogs = DialogModes.NO;
     layer.translate(x - cx, y - cy);
   }
 
-  // ── Resolve paths ────────────────────────────────────────────────────────
+  // ── Resolve repo root ────────────────────────────────────────────────────
+  //
+  // $.fileName can be:
+  //   a) an absolute path  → use it directly
+  //   b) a relative path   → resolve against app.path (PS install dir) — WRONG
+  //
+  // Safest approach: use the File object's .parent chain.
+  // scripts/task.jsx  →  parent = scripts/  →  parent.parent = repo root
 
-  // jobRoot = repo root = parent of the "scripts" folder
   var scriptFile = new File($.fileName);
-  var jobRoot    = norm(scriptFile.parent.parent.fsName);
 
-  var configPath = norm(joinPath(jobRoot, "config.json"));
+  // If $.fileName is relative, Photoshop resolves it against its CWD.
+  // We force an absolute path by resolving via the File API.
+  var scriptAbsolute = scriptFile.absoluteURI;   // always absolute, URI-encoded
+  var scriptsFolder  = new File(scriptAbsolute).parent;   // …/scripts
+  var repoFolder     = scriptsFolder.parent;               // …/repo-root
 
-  // ── Bootstrap log (before we know the real log path) ────────────────────
+  var jobRoot = norm(repoFolder.fsName);   // native OS path, forward-slashed
+
+  var configPath   = norm(joinPath(jobRoot, "config.json"));
   var bootstrapLog = norm(joinPath(jobRoot, "out/bootstrap.log"));
-  ensureFolder(norm(joinPath(jobRoot, "out")));
-  writeLog(bootstrapLog, "JSX start. jobRoot=" + jobRoot + "  config=" + configPath);
+
+  // Ensure out/ exists before we try to write bootstrap.log
+  try { ensureFolder(norm(joinPath(jobRoot, "out"))); } catch (e) {}
+
+  writeLog(bootstrapLog, "=== JSX start ===");
+  writeLog(bootstrapLog, "$.fileName   = " + $.fileName);
+  writeLog(bootstrapLog, "scriptAbsURI = " + scriptAbsolute);
+  writeLog(bootstrapLog, "jobRoot      = " + jobRoot);
+  writeLog(bootstrapLog, "configPath   = " + configPath);
+  writeLog(bootstrapLog, "config exists? " + (new File(configPath)).exists);
 
   // ── Main ─────────────────────────────────────────────────────────────────
-  try {
-    var cfg = parseJson(readText(configPath));
+  var logPath;   // declared here so the catch block can reach it
 
-    // Resolve output PNG path
+  try {
+
+    // 1. Read config ─────────────────────────────────────────────────────────
+    if (!(new File(configPath)).exists) {
+      throw new Error("config.json not found at: " + configPath);
+    }
+    var cfg = parseJson(readText(configPath));
+    writeLog(bootstrapLog, "Config parsed OK. job_id=" + (cfg.job_id || "(none)"));
+
+    // 2. Resolve output PNG path ──────────────────────────────────────────────
     var outRel  = (cfg.export && cfg.export.png && cfg.export.png.path)
                   ? cfg.export.png.path
                   : "out/final.png";
@@ -97,25 +130,43 @@ app.displayDialogs = DialogModes.NO;
     var outDir  = norm(new File(outPath).parent.fsName);
     ensureFolder(outDir);
 
-    var logPath = norm(joinPath(outDir, "run.log"));
-    writeLog(logPath, "JSX start. config=" + configPath);
-    writeLog(logPath, "Output PNG: " + outPath);
+    logPath = norm(joinPath(outDir, "run.log"));
+    writeLog(logPath, "=== JSX start ===");
+    writeLog(logPath, "jobRoot    = " + jobRoot);
+    writeLog(logPath, "configPath = " + configPath);
+    writeLog(logPath, "outPath    = " + outPath);
+    writeLog(logPath, "outDir     = " + outDir);
 
-    // Open base image
+    // 3. Open base image ──────────────────────────────────────────────────────
     var baseRel  = (cfg.base && cfg.base.path) ? cfg.base.path : "input/base.png";
     var basePath = norm(joinPath(jobRoot, baseRel));
-    if (!(new File(basePath)).exists) throw new Error("Base image missing: " + basePath);
+    writeLog(logPath, "basePath   = " + basePath);
+    writeLog(logPath, "base exists? " + (new File(basePath)).exists);
 
-    var doc = app.open(new File(basePath));
-    writeLog(logPath, "Opened base: " + basePath);
+    if (!(new File(basePath)).exists) {
+      throw new Error("Base image missing: " + basePath);
+    }
 
-    // Place layers
+    var openOpts = new OpenOptions();
+    var doc = app.open(new File(basePath), openOpts);
+    writeLog(logPath, "Opened base: " + basePath +
+             "  (" + doc.width.as("px") + "x" + doc.height.as("px") + "px)");
+
+    // 4. Place layers ─────────────────────────────────────────────────────────
     var layers = cfg.layers || [];
+    writeLog(logPath, "Layers to place: " + layers.length);
+
     for (var i = 0; i < layers.length; i++) {
       var L = layers[i];
-      if (!L || L.type !== "image") continue;
+      if (!L || L.type !== "image") {
+        writeLog(logPath, "Skipping layer[" + i + "] (type=" + (L ? L.type : "null") + ")");
+        continue;
+      }
 
       var assetPath = norm(joinPath(jobRoot, L.path));
+      writeLog(logPath, "Layer[" + i + "] assetPath=" + assetPath +
+               "  exists=" + (new File(assetPath)).exists);
+
       var af = new File(assetPath);
       if (!af.exists) {
         writeLog(logPath, "WARN: asset missing, skipping: " + assetPath);
@@ -123,6 +174,8 @@ app.displayDialogs = DialogModes.NO;
       }
 
       var assetDoc = app.open(af);
+      writeLog(logPath, "Opened asset: " + assetPath);
+
       assetDoc.activeLayer.name = L.name ? L.name : ("asset_" + (i + 1));
       assetDoc.activeLayer.duplicate(doc, ElementPlacement.PLACEATBEGINNING);
       assetDoc.close(SaveOptions.DONOTSAVECHANGES);
@@ -143,14 +196,45 @@ app.displayDialogs = DialogModes.NO;
                " at (" + x + "," + y + ") scale=" + scale + " rot=" + rotate);
     }
 
-    // Export PNG
-    var outFile  = new File(outPath);
-    var pngOpts  = new PNGSaveOptions();
-    pngOpts.compression = 6;
-    doc.saveAs(outFile, pngOpts, true, Extension.LOWERCASE);
-    writeLog(logPath, "Saved PNG: " + outPath);
+    // 5. Export PNG ───────────────────────────────────────────────────────────
+    //
+    // doc.saveAs() with PNGSaveOptions is deprecated in Photoshop 2022+.
+    // Use exportDocument() with ExportType.SAVEFORWEB for reliable PNG output
+    // across all modern PS versions.  Fall back to saveAs if exportDocument
+    // is not available (very old PS).
 
-    // Optionally export PSD
+    writeLog(logPath, "Exporting PNG to: " + outPath);
+
+    var outFile = new File(outPath);
+
+    try {
+      // Modern path: Save for Web (PNG-24, no lossy compression)
+      var sfwOpts = new ExportOptionsSaveForWeb();
+      sfwOpts.format        = SaveDocumentType.PNG;
+      sfwOpts.PNG8          = false;   // PNG-24
+      sfwOpts.transparency  = true;
+      sfwOpts.interlaced    = false;
+      sfwOpts.quality       = 100;
+      doc.exportDocument(outFile, ExportType.SAVEFORWEB, sfwOpts);
+      writeLog(logPath, "Saved PNG (exportDocument/SaveForWeb): " + outPath);
+    } catch (exportErr) {
+      // Fallback: classic saveAs with PNGSaveOptions
+      writeLog(logPath, "exportDocument failed (" + exportErr.message + "), trying saveAs fallback");
+      var pngOpts = new PNGSaveOptions();
+      pngOpts.compression = 6;
+      doc.saveAs(outFile, pngOpts, true, Extension.LOWERCASE);
+      writeLog(logPath, "Saved PNG (saveAs fallback): " + outPath);
+    }
+
+    // Verify the file was actually written
+    if ((new File(outPath)).exists) {
+      writeLog(logPath, "Verified: output file exists (" +
+               Math.round((new File(outPath)).length / 1024) + " KB)");
+    } else {
+      throw new Error("PNG was not created at: " + outPath);
+    }
+
+    // 6. Optionally export PSD ────────────────────────────────────────────────
     var psdCfg = (cfg.export && cfg.export.psd) ? cfg.export.psd : {};
     if (psdCfg.enabled) {
       var psdRel  = psdCfg.path || "out/final.psd";
@@ -161,12 +245,18 @@ app.displayDialogs = DialogModes.NO;
     }
 
     doc.close(SaveOptions.DONOTSAVECHANGES);
-    writeLog(logPath, "JSX done OK");
+    writeLog(logPath, "=== JSX done OK ===");
+    writeLog(bootstrapLog, "JSX done OK. Output: " + outPath);
 
   } catch (err) {
-    // Write error to both bootstrap log and (if known) run.log
-    writeLog(bootstrapLog, "ERROR: " + err.message + " (line " + err.line + ")");
-    try { writeLog(logPath, "ERROR: " + err.message + " (line " + err.line + ")"); } catch (e2) {}
+    var errMsg = "ERROR: " + err.message + " (line " + err.line + ")";
+    writeLog(bootstrapLog, errMsg);
+    if (logPath) {
+      try { writeLog(logPath, errMsg); } catch (e2) {}
+    }
+    // Re-throw so Photoshop's own error handler also records it
+    // (comment out if you don't want a PS error dialog)
+    // throw err;
   }
 
 })();

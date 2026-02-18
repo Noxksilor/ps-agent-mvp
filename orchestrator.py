@@ -44,14 +44,31 @@ TASK_JSX = REPO_ROOT / "scripts" / "task.jsx"
 # ───────────────────────────────────────────────────────────────────────────
 
 def _find_ahk() -> str:
-    """Return the AutoHotkey executable name found on PATH, or raise."""
+    """Return the full path to the AutoHotkey executable, or raise."""
+    # 1. Check PATH first (works if AHK is on PATH)
     for candidate in ("AutoHotkey.exe", "AutoHotkey64.exe",
                       "AutoHotkey32.exe", "autohotkey.exe"):
-        if shutil.which(candidate):
-            return candidate
+        found = shutil.which(candidate)
+        if found:
+            return found
+
+    # 2. Check well-known default installation paths (AHK v2 and v1)
+    import os
+    well_known = [
+        r"C:\Program Files\AutoHotkey\v2\AutoHotkey.exe",
+        r"C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe",
+        r"C:\Program Files\AutoHotkey\AutoHotkey.exe",
+        r"C:\Program Files (x86)\AutoHotkey\AutoHotkey.exe",
+        r"C:\Program Files\AutoHotkey\AutoHotkeyU64.exe",
+    ]
+    for path in well_known:
+        if os.path.isfile(path):
+            return path
+
     raise FileNotFoundError(
-        "AutoHotkey not found on PATH. "
-        "Install AutoHotkey v1 or v2 and make sure it is on PATH."
+        "AutoHotkey not found on PATH or in default install locations. "
+        "Install AutoHotkey v2 from https://www.autohotkey.com/ "
+        "or add it to PATH."
     )
 
 
