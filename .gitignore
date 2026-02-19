@@ -5,6 +5,9 @@ out/*
 # ── n8n data volume (Docker) ─────────────────────────────────────────────
 n8n_data/
 
+# ── super_agent logs ────────────────────────────────────────────────────
+agent_logs/
+
 # legacy output folder (pre-refactor)
 output/
 

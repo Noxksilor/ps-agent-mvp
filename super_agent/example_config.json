@@ -1,0 +1,18 @@
+{
+  "llm_provider": "anthropic",
+  "llm_model": "claude-sonnet-4-20250514",
+  
+  "max_iterations": 50,
+  "working_dir": ".",
+  "log_dir": "agent_logs",
+  
+  "allowed_commands": [
+    "python", "pip", "git", "docker", "docker-compose",
+    "npm", "node", "curl", "wget", "dir", "type", "copy", "move", "del"
+  ],
+  
+  "n8n_base_url": "http://localhost:5678",
+  "ps_agent_dir": "C:/ps_jobs/job_0001",
+  
+  "web_search_enabled": true
+}

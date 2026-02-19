@@ -1,0 +1,10 @@
+# super_agent requirements
+# Install with: pip install -r super_agent/requirements.txt
+
+# LLM providers (install at least one)
+anthropic>=0.25.0      # For Claude
+openai>=1.0.0          # For GPT-4
+google-generativeai>=0.3.0  # For Gemini
+
+# Core (usually included with Python)
+# No additional dependencies required
